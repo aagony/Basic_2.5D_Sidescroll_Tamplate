@@ -7,6 +7,8 @@
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
 /[Mm]emoryCaptures/
+/[Aa]ssets/_ExternalAssets/
+/[Aa]ssets/_ExternalAssets.meta
 
 # Unity generated files
 sysinfo.txt
