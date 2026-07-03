@@ -206,8 +206,8 @@ MonoBehaviour:
   gravity: -25
   groundedStickForce: -2
   invertVisualFacing: 0
-  detectionRange: 6
-  verticalTolerance: 2
+  detectionRange: 16
+  verticalTolerance: 6
   animator: {fileID: 0}
   deadTriggerName: Dead
   destroyAfterDeath: 1
