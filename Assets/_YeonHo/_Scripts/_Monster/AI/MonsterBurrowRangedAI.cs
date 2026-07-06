@@ -2,7 +2,7 @@ using System.Collections;
 using UnityEngine;
 
 [RequireComponent(typeof(CharacterController))]
-[RequireComponent(typeof(MonsterStatus))]
+[RequireComponent(typeof(MonsterGroundMotor))]
 public class MonsterBurrowRangedAI : MonsterBase
 {
     [Header("Burrow")]

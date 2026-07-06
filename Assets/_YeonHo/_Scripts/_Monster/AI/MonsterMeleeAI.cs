@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [RequireComponent(typeof(CharacterController))]
-[RequireComponent(typeof(MonsterStatus))]
+[RequireComponent(typeof(MonsterGroundMotor))]
 public class MonsterMeleeAI : MonsterBase
 {
     private const string DefaultPlayerLayerName = "Player";
@@ -91,7 +91,7 @@ public class MonsterMeleeAI : MonsterBase
         isAttacking = false;
     }
 
-    // 공격 판정 박스 안의 플레이어를 찾아 데미지를 줍니다
+    // 공격 판정 박스 안의 IDamageable 대상에게 데미지를 줍니다
     private void DoAttackHitCheck()
     {
         Vector3 center = GetAttackBoxCenter();
@@ -105,44 +105,93 @@ public class MonsterMeleeAI : MonsterBase
             QueryTriggerInteraction.Ignore
         );
 
-        HashSet<PlayerStatus> damagedTargets = new HashSet<PlayerStatus>();
+        HashSet<Object> damagedTargets = new HashSet<Object>();
 
         for (int i = 0; i < hits.Length; i++)
         {
-            PlayerStatus playerStatus = hits[i].GetComponentInParent<PlayerStatus>();
+            IDamageable damageable = hits[i].GetComponentInParent<IDamageable>();
 
-            if (playerStatus == null)
+            if (damageable == null)
             {
                 continue;
             }
 
-            if (damagedTargets.Contains(playerStatus))
+            Object damageTargetKey = GetDamageTargetKey(hits[i], damageable);
+
+            if (damageTargetKey != null && damagedTargets.Contains(damageTargetKey))
             {
                 continue;
             }
 
-            damagedTargets.Add(playerStatus);
-            ApplyDamageToPlayer(playerStatus, hits[i]);
+            if (!damageable.CanTakeDamage)
+            {
+                continue;
+            }
+
+            if (damageTargetKey != null)
+            {
+                damagedTargets.Add(damageTargetKey);
+            }
+
+            ApplyDamageToTarget(damageable, hits[i]);
         }
     }
 
-    // PlayerStatus에 DamageInfo를 전달합니다
-    private void ApplyDamageToPlayer(PlayerStatus playerStatus, Collider hitCollider)
+    // IDamageable에 데미지만 전달하고 피격 정보는 이벤트로 알립니다
+    private void ApplyDamageToTarget(IDamageable damageable, Collider hitCollider)
     {
         Vector3 hitPoint = hitCollider.ClosestPoint(transform.position);
         Vector3 hitDirection = GetFacingDirectionVector();
         float damage = GetAttackPower(fallbackAttackDamage);
 
-        DamageInfo damageInfo = new DamageInfo(
-            playerStatus.gameObject,
-            hitCollider,
+        damageable.TakeDamage(damage);
+        PublishDamageHitEvent(GetDamageableGameObject(hitCollider, damageable), hitCollider, hitPoint, hitDirection, damage);
+    }
+
+    // 중복 데미지 방지에 사용할 대상을 반환합니다
+    private Object GetDamageTargetKey(Collider hitCollider, IDamageable damageable)
+    {
+        Object damageableObject = damageable as Object;
+
+        if (damageableObject != null)
+        {
+            return damageableObject;
+        }
+
+        if (hitCollider.attachedRigidbody != null)
+        {
+            return hitCollider.attachedRigidbody;
+        }
+
+        return hitCollider.transform.root;
+    }
+
+    // 피격 이벤트에 사용할 대상 오브젝트를 반환합니다
+    private GameObject GetDamageableGameObject(Collider hitCollider, IDamageable damageable)
+    {
+        Component damageableComponent = damageable as Component;
+
+        if (damageableComponent != null)
+        {
+            return damageableComponent.gameObject;
+        }
+
+        return hitCollider.gameObject;
+    }
+
+    // 데미지 적용 사실을 이벤트 버스로 알립니다
+    private void PublishDamageHitEvent(GameObject targetObject, Collider hitCollider, Vector3 hitPoint, Vector3 hitDirection, float damage)
+    {
+        DamageHitEvent hitEvent = new DamageHitEvent(
+            targetObject,
             gameObject,
+            hitCollider,
             hitPoint,
             hitDirection,
             damage
         );
 
-        playerStatus.TakeDamage(damageInfo);
+        EventBus<DamageHitEvent>.Publish(hitEvent);
     }
 
     // 현재 바라보는 방향 기준으로 공격 판정 박스 중심을 계산합니다

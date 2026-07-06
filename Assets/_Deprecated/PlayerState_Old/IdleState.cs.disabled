@@ -1,0 +1,65 @@
+using UnityEngine;
+
+// 플레이어가 지상에서 가만히 있는 상태입니다.
+// 이동, 점프, 대쉬 입력을 감지해서 다른 상태로 전환합니다.
+public class IdleState : PlayerBaseState
+{
+    public IdleState(PlayerController controller) : base(controller) { }
+
+    public override void EnterState()
+    {
+        Debug.Log("Idle Enter");
+    }
+
+    // 정지 상태에서 이동, 점프, 대쉬, 낙하 상태 전환을 확인합니다
+    public override void UpdateState()
+    {
+        controller.Movement.ApplyGravity();
+
+        controller.Movement.Move(Vector2.zero);
+
+        Debug.Log(
+            "IdleState Check " +
+            "MoveInput " + controller.MoveInput +
+            " IsGrounded " + controller.Movement.IsGrounded +
+            " IsFalling " + controller.Movement.IsFalling
+        );
+
+        if (!controller.Movement.IsGrounded && controller.Movement.IsFalling)
+        {
+            Debug.Log("Idle To Fall");
+            controller.TransitionTo(controller.FallState);
+            return;
+        }
+
+        if (controller.DashTriggered && controller.Movement.CanDash())
+        {
+            Debug.Log("Idle To Dash");
+            controller.TransitionTo(controller.DashState);
+            return;
+        }
+
+        if (controller.MoveInput != Vector2.zero)
+        {
+            Debug.Log("Idle To Move");
+            controller.TransitionTo(controller.MoveState);
+            return;
+        }
+
+        if (controller.JumpTriggered)
+        {
+            Debug.Log("Idle To Jump");
+            controller.TransitionTo(controller.JumpState);
+            return;
+        }
+    }
+
+    public override void ExitState()
+    {
+        Debug.Log("Idle Exit");
+    }
+
+    public override void FixedUpdateState()
+    {
+    }
+}

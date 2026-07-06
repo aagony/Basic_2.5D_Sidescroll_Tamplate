@@ -1,58 +1,42 @@
 using UnityEngine;
 
-[RequireComponent(typeof(CharacterController))]
-[RequireComponent(typeof(MonsterStatus))]
+[RequireComponent(typeof(MonsterHealth))]
+[RequireComponent(typeof(MonsterStats))]
+[RequireComponent(typeof(MonsterFacing))]
+[RequireComponent(typeof(MonsterTargetSensor))]
 public abstract class MonsterBase : MonoBehaviour
 {
-    [Header("Target")]
-    [SerializeField] private Transform target;
-    [SerializeField] private Vector3 targetAimOffset = Vector3.up;
-    [SerializeField] private bool autoFindPlayerStatus = true;
-
-    [Header("Move")]
-    [SerializeField] private float fallbackMoveSpeed = 2.5f;
+    [Header("Depth")]
     [SerializeField] private float fixedZ = 0f;
-    [SerializeField] private float gravity = -25f;
-    [SerializeField] private float groundedStickForce = -2f;
-    [SerializeField] private bool invertVisualFacing = false;
 
-    [Header("Detect")]
-    [SerializeField] private float detectionRange = 6f;
-    [SerializeField] private float verticalTolerance = 1.5f;
+    [Header("Fallback")]
+    [SerializeField] private float fallbackMoveSpeed = 2.5f;
 
-    [Header("Death")]
-    [SerializeField] private Animator animator;
-    [SerializeField] private string deadTriggerName = "Dead";
-    [SerializeField] private bool destroyAfterDeath = true;
-    [SerializeField] private float destroyDelay = 1.5f;
-    [SerializeField] private bool disableCharacterControllerOnDeath = true;
-
-    private CharacterController characterController;
-    private MonsterStatus monsterStatus;
-    private PlayerStatus targetStatus;
-    private float verticalVelocity;
-    private float horizontalVelocity;
-    private bool facingRight = true;
+    private MonsterHealth monsterHealth;
+    private MonsterStats monsterStats;
+    private MonsterFacing monsterFacing;
+    private MonsterTargetSensor targetSensor;
+    private MonsterGroundMotor groundMotor;
     private bool deadStateEntered;
 
     protected Transform Target
     {
-        get { return target; }
+        get { return targetSensor != null ? targetSensor.Target : null; }
     }
 
     protected PlayerStatus TargetStatus
     {
-        get { return targetStatus; }
+        get { return targetSensor != null ? targetSensor.TargetStatus : null; }
     }
 
-    protected MonsterStatus SelfStatus
+    protected MonsterHealth SelfHealth
     {
-        get { return monsterStatus; }
+        get { return monsterHealth; }
     }
 
-    protected CharacterController MonsterCharacterController
+    protected MonsterGroundMotor GroundMotor
     {
-        get { return characterController; }
+        get { return groundMotor; }
     }
 
     protected float FixedZ
@@ -62,22 +46,22 @@ public abstract class MonsterBase : MonoBehaviour
 
     protected float DetectionRange
     {
-        get { return detectionRange; }
+        get { return targetSensor != null ? targetSensor.DetectionRange : 0f; }
     }
 
     protected float VerticalTolerance
     {
-        get { return verticalTolerance; }
+        get { return targetSensor != null ? targetSensor.VerticalTolerance : 0f; }
     }
 
     protected bool FacingRight
     {
-        get { return facingRight; }
+        get { return monsterFacing != null && monsterFacing.FacingRight; }
     }
 
     protected bool IsDead
     {
-        get { return monsterStatus != null && monsterStatus.Status != null && monsterStatus.Status.IsDead; }
+        get { return monsterHealth != null && monsterHealth.IsDead; }
     }
 
     protected virtual bool UsesCharacterMotor
@@ -85,21 +69,24 @@ public abstract class MonsterBase : MonoBehaviour
         get { return true; }
     }
 
-    // 몬스터 공통 컴포넌트와 기본 위치를 준비합니다
+    // 몬스터 공통 컴포넌트를 준비합니다
     protected virtual void Awake()
     {
-        characterController = GetComponent<CharacterController>();
-        monsterStatus = GetComponent<MonsterStatus>();
+        monsterHealth = GetComponent<MonsterHealth>();
+        monsterStats = GetComponent<MonsterStats>();
+        monsterFacing = GetComponent<MonsterFacing>();
+        targetSensor = GetComponent<MonsterTargetSensor>();
+        groundMotor = GetComponent<MonsterGroundMotor>();
 
-        if (animator == null)
+        if (groundMotor != null)
         {
-            animator = GetComponentInChildren<Animator>();
+            groundMotor.Initialize(fixedZ);
         }
 
         FixDepthPosition();
     }
 
-    // 몬스터의 공통 생명주기와 이동 처리를 실행합니다
+    // 몬스터의 공통 생명주기와 AI 틱을 실행합니다
     protected virtual void Update()
     {
         if (IsDead)
@@ -108,22 +95,29 @@ public abstract class MonsterBase : MonoBehaviour
             return;
         }
 
-        TryFindTarget();
+        if (targetSensor != null)
+        {
+            targetSensor.RefreshTarget();
+        }
 
-        horizontalVelocity = 0f;
+        if (UsesCharacterMotor && groundMotor != null)
+        {
+            groundMotor.ResetHorizontalVelocity();
+        }
 
-        if (target != null)
+        if (Target != null)
         {
             TickMonster();
         }
 
-        if (UsesCharacterMotor)
+        if (UsesCharacterMotor && groundMotor != null)
         {
-            ApplyGravity();
-            ApplyMovement();
+            groundMotor.TickMovement();
         }
-
-        FixDepthPosition();
+        else
+        {
+            FixDepthPosition();
+        }
     }
 
     // 자식 클래스에서 몬스터별 행동을 구현합니다
@@ -138,25 +132,8 @@ public abstract class MonsterBase : MonoBehaviour
         }
 
         deadStateEntered = true;
-        horizontalVelocity = 0f;
-        verticalVelocity = 0f;
-
-        if (disableCharacterControllerOnDeath && characterController != null)
-        {
-            characterController.enabled = false;
-        }
-
-        if (animator != null && !string.IsNullOrEmpty(deadTriggerName))
-        {
-            animator.SetTrigger(deadTriggerName);
-        }
-
+        StopHorizontalMovement();
         OnDeadStateEntered();
-
-        if (destroyAfterDeath)
-        {
-            Destroy(gameObject, destroyDelay);
-        }
     }
 
     // 자식 클래스에서 사망 상태 진입 후처리를 확장합니다
@@ -164,167 +141,139 @@ public abstract class MonsterBase : MonoBehaviour
     {
     }
 
-    // 플레이어 Status를 가진 대상을 자동으로 찾습니다
-    protected void TryFindTarget()
-    {
-        if (!autoFindPlayerStatus)
-        {
-            return;
-        }
-
-        if (target != null && targetStatus != null)
-        {
-            return;
-        }
-
-        PlayerStatus foundTargetStatus = FindFirstObjectByType<PlayerStatus>();
-
-        if (foundTargetStatus == null)
-        {
-            return;
-        }
-
-        targetStatus = foundTargetStatus;
-        target = foundTargetStatus.transform;
-    }
-
-    // 대상이 감지 범위 안에 있는지 확인합니다
+    // 대상이 기본 감지 범위 안에 있는지 확인합니다
     protected bool IsTargetInDetectionRange()
     {
-        return IsTargetInRange(detectionRange, verticalTolerance);
+        if (targetSensor == null)
+        {
+            return false;
+        }
+
+        return targetSensor.IsTargetInDetectionRange(transform.position);
     }
 
     // 대상이 지정한 수평 수직 범위 안에 있는지 확인합니다
     protected bool IsTargetInRange(float horizontalRange, float allowedVerticalRange)
     {
-        if (target == null)
+        if (targetSensor == null)
         {
             return false;
         }
 
-        float distanceX = Mathf.Abs(target.position.x - transform.position.x);
-        float distanceY = Mathf.Abs(target.position.y - transform.position.y);
-
-        return distanceX <= horizontalRange && distanceY <= allowedVerticalRange;
+        return targetSensor.IsTargetInRange(transform.position, horizontalRange, allowedVerticalRange);
     }
 
     // 대상 방향으로 바라보도록 방향 값을 갱신합니다
     protected void FaceTarget()
     {
-        if (target == null)
+        if (monsterFacing == null)
         {
             return;
         }
 
-        if (target.position.x > transform.position.x)
-        {
-            SetFacingDirection(true);
-        }
-        else if (target.position.x < transform.position.x)
-        {
-            SetFacingDirection(false);
-        }
+        monsterFacing.FaceTarget(Target);
     }
 
     // 몬스터의 바라보는 방향을 설정합니다
     protected void SetFacingDirection(bool lookRight)
     {
-        facingRight = lookRight;
-
-        float visualSign = facingRight ? 1f : -1f;
-
-        if (invertVisualFacing)
+        if (monsterFacing == null)
         {
-            visualSign *= -1f;
+            return;
         }
 
-        Vector3 scale = transform.localScale;
-        scale.x = Mathf.Abs(scale.x) * visualSign;
-        transform.localScale = scale;
+        monsterFacing.SetFacingDirection(lookRight);
     }
 
     // 대상 방향으로 수평 이동합니다
     protected void ChaseTarget()
     {
-        if (target == null)
+        if (Target == null)
         {
             return;
         }
 
-        float direction = target.position.x > transform.position.x ? 1f : -1f;
+        float direction = Target.position.x > transform.position.x ? 1f : -1f;
         SetHorizontalVelocity(direction * GetMoveSpeed());
     }
 
     // 수평 이동 속도를 설정합니다
     protected void SetHorizontalVelocity(float velocity)
     {
-        horizontalVelocity = velocity;
+        if (groundMotor == null)
+        {
+            return;
+        }
+
+        groundMotor.SetHorizontalVelocity(velocity);
     }
 
     // 수평 이동을 멈춥니다
     protected void StopHorizontalMovement()
     {
-        horizontalVelocity = 0f;
+        if (groundMotor == null)
+        {
+            return;
+        }
+
+        groundMotor.StopHorizontalMovement();
     }
 
-    // 몬스터 스탯 기준 이동 속도를 가져옵니다
+    // 몬스터 이동 속도를 가져옵니다
     protected float GetMoveSpeed()
     {
-        if (monsterStatus == null)
+        if (monsterStats == null)
         {
             return fallbackMoveSpeed;
         }
 
-        float statusMoveSpeed = monsterStatus.GetMoveSpeed();
-
-        if (statusMoveSpeed <= 0f)
-        {
-            return fallbackMoveSpeed;
-        }
-
-        return statusMoveSpeed;
+        return monsterStats.GetMoveSpeedOrFallback(fallbackMoveSpeed);
     }
 
-    // 몬스터 스탯 기준 공격력을 가져옵니다
+    // 몬스터 공격력을 가져옵니다
     protected float GetAttackPower(float fallbackDamage)
     {
-        if (monsterStatus == null)
+        if (monsterStats == null)
         {
             return fallbackDamage;
         }
 
-        float statusAttackPower = monsterStatus.GetAttackPower();
-
-        if (statusAttackPower <= 0f)
-        {
-            return fallbackDamage;
-        }
-
-        return statusAttackPower;
+        return monsterStats.GetAttackPowerOrFallback(fallbackDamage);
     }
 
     // 현재 바라보는 방향을 월드 방향으로 반환합니다
     protected Vector3 GetFacingDirectionVector()
     {
-        return facingRight ? Vector3.right : Vector3.left;
+        if (monsterFacing == null)
+        {
+            return Vector3.right;
+        }
+
+        return monsterFacing.GetFacingDirectionVector();
     }
 
     // 현재 바라보는 방향에 맞춰 오프셋을 계산합니다
     protected Vector3 GetFacingOffset(Vector3 offset)
     {
-        float direction = facingRight ? 1f : -1f;
-        return new Vector3(offset.x * direction, offset.y, offset.z);
+        if (monsterFacing == null)
+        {
+            return offset;
+        }
+
+        return monsterFacing.GetFacingOffset(offset);
     }
 
     // 대상의 조준 위치를 반환합니다
     protected Vector3 GetTargetAimPosition()
     {
-        if (target == null)
+        Vector3 fallbackPosition = transform.position + GetFacingDirectionVector();
+
+        if (targetSensor == null)
         {
-            return transform.position + GetFacingDirectionVector();
+            return fallbackPosition;
         }
 
-        return target.position + targetAimOffset;
+        return targetSensor.GetTargetAimPosition(fallbackPosition);
     }
 
     // 지정한 위치에서 대상 조준 위치로 향하는 방향을 계산합니다
@@ -344,40 +293,12 @@ public abstract class MonsterBase : MonoBehaviour
     // CharacterController 사용 여부를 변경합니다
     protected void SetCharacterControllerEnabled(bool enabled)
     {
-        if (characterController == null)
+        if (groundMotor == null)
         {
             return;
         }
 
-        characterController.enabled = enabled;
-    }
-
-    // 중력 값을 계산합니다
-    private void ApplyGravity()
-    {
-        if (characterController == null || !characterController.enabled)
-        {
-            return;
-        }
-
-        if (characterController.isGrounded && verticalVelocity < 0f)
-        {
-            verticalVelocity = groundedStickForce;
-        }
-
-        verticalVelocity += gravity * Time.deltaTime;
-    }
-
-    // 계산된 이동 값을 CharacterController에 적용합니다
-    private void ApplyMovement()
-    {
-        if (characterController == null || !characterController.enabled)
-        {
-            return;
-        }
-
-        Vector3 movement = new Vector3(horizontalVelocity, verticalVelocity, 0f);
-        characterController.Move(movement * Time.deltaTime);
+        groundMotor.SetCharacterControllerEnabled(enabled);
     }
 
     // 2.5D 횡스크롤 이동을 위해 Z 위치를 고정합니다
@@ -399,7 +320,7 @@ public abstract class MonsterBase : MonoBehaviour
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireCube(
             transform.position,
-            new Vector3(detectionRange * 2f, verticalTolerance * 2f, 1f)
+            new Vector3(DetectionRange * 2f, VerticalTolerance * 2f, 1f)
         );
     }
 }

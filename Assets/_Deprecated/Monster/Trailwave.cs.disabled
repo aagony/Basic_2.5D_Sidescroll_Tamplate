@@ -1,0 +1,31 @@
+using UnityEngine;
+
+public class TrailWave : MonoBehaviour
+{
+    [SerializeField] private float amplitude = 0.3f;   // 나선 폭
+    [SerializeField] private float coilDensity = 8f;   // 나선 촘촘함 (거리당 감김 수)
+    [SerializeField] private float phase = 0f;
+    [SerializeField] private bool useCos = false;
+
+    private Vector3 basePos;
+    private Vector3 lastParentPos;
+    private float traveled = 0f;   // 부모가 이동한 거리 누적
+
+    void Awake()
+    {
+        basePos = transform.localPosition;
+        lastParentPos = transform.parent.position;
+    }
+
+    void Update()
+    {
+        // 부모(본체)가 이동한 거리 누적
+        traveled += Vector3.Distance(transform.parent.position, lastParentPos);
+        lastParentPos = transform.parent.position;
+
+        float wave = useCos
+            ? Mathf.Cos(traveled * coilDensity + phase)
+            : Mathf.Sin(traveled * coilDensity + phase);
+        transform.localPosition = basePos + new Vector3(0f, wave * amplitude, 0f);
+    }
+}

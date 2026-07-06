@@ -277,7 +277,7 @@ public class MonsterFlyingSelfDestructAI : MonsterBase
         Instantiate(explosionEffectPrefab, transform.position, Quaternion.identity);
     }
 
-    // 폭발 반경 안의 플레이어를 찾아 범위 피해를 줍니다
+    // 폭발 반경 안의 IDamageable 대상에게 범위 피해를 줍니다
     private void ApplyExplosionDamage()
     {
         Collider[] hits = Physics.OverlapSphere(
@@ -287,76 +287,119 @@ public class MonsterFlyingSelfDestructAI : MonsterBase
             QueryTriggerInteraction.Ignore
         );
 
-        HashSet<PlayerStatus> damagedTargets = new HashSet<PlayerStatus>();
+        HashSet<Object> damagedTargets = new HashSet<Object>();
 
         for (int i = 0; i < hits.Length; i++)
         {
-            PlayerStatus playerStatus = hits[i].GetComponentInParent<PlayerStatus>();
+            IDamageable damageable = hits[i].GetComponentInParent<IDamageable>();
 
-            if (playerStatus == null)
+            if (damageable == null)
             {
                 continue;
             }
 
-            if (damagedTargets.Contains(playerStatus))
+            Object damageTargetKey = GetDamageTargetKey(hits[i], damageable);
+
+            if (damageTargetKey != null && damagedTargets.Contains(damageTargetKey))
             {
                 continue;
             }
 
-            damagedTargets.Add(playerStatus);
-            ApplyDamageToPlayer(playerStatus, hits[i]);
+            if (!damageable.CanTakeDamage)
+            {
+                continue;
+            }
+
+            if (damageTargetKey != null)
+            {
+                damagedTargets.Add(damageTargetKey);
+            }
+
+            ApplyDamageToTarget(damageable, hits[i]);
         }
     }
 
-    // PlayerStatus에 DamageInfo를 전달합니다
-    private void ApplyDamageToPlayer(PlayerStatus playerStatus, Collider hitCollider)
+    // IDamageable에 데미지만 전달하고 피격 정보는 이벤트로 알립니다
+    private void ApplyDamageToTarget(IDamageable damageable, Collider hitCollider)
     {
         Vector3 hitPoint = hitCollider.ClosestPoint(transform.position);
-        Vector3 hitDirection = playerStatus.transform.position - transform.position;
+        Vector3 hitDirection = GetDamageDirection(hitCollider);
+        float damage = GetAttackPower(fallbackExplosionDamage);
+
+        damageable.TakeDamage(damage);
+        PublishDamageHitEvent(GetDamageableGameObject(hitCollider, damageable), hitCollider, hitPoint, hitDirection, damage);
+    }
+
+    // 폭발 중심에서 대상 방향으로 향하는 피격 방향을 계산합니다
+    private Vector3 GetDamageDirection(Collider hitCollider)
+    {
+        Vector3 hitDirection = hitCollider.transform.position - transform.position;
         hitDirection.z = 0f;
 
         if (hitDirection.sqrMagnitude <= Mathf.Epsilon)
         {
-            hitDirection = GetFacingDirectionVector();
+            return GetFacingDirectionVector();
         }
-        else
+
+        return hitDirection.normalized;
+    }
+
+    // 중복 데미지 방지에 사용할 대상을 반환합니다
+    private Object GetDamageTargetKey(Collider hitCollider, IDamageable damageable)
+    {
+        Object damageableObject = damageable as Object;
+
+        if (damageableObject != null)
         {
-            hitDirection.Normalize();
+            return damageableObject;
         }
 
-        float damage = GetAttackPower(fallbackExplosionDamage);
+        if (hitCollider.attachedRigidbody != null)
+        {
+            return hitCollider.attachedRigidbody;
+        }
 
-        DamageInfo damageInfo = new DamageInfo(
-            playerStatus.gameObject,
-            hitCollider,
+        return hitCollider.transform.root;
+    }
+
+    // 피격 이벤트에 사용할 대상 오브젝트를 반환합니다
+    private GameObject GetDamageableGameObject(Collider hitCollider, IDamageable damageable)
+    {
+        Component damageableComponent = damageable as Component;
+
+        if (damageableComponent != null)
+        {
+            return damageableComponent.gameObject;
+        }
+
+        return hitCollider.gameObject;
+    }
+
+    // 데미지 적용 사실을 이벤트 버스로 알립니다
+    private void PublishDamageHitEvent(GameObject targetObject, Collider hitCollider, Vector3 hitPoint, Vector3 hitDirection, float damage)
+    {
+        DamageHitEvent hitEvent = new DamageHitEvent(
+            targetObject,
             gameObject,
+            hitCollider,
             hitPoint,
             hitDirection,
             damage
         );
 
-        playerStatus.TakeDamage(damageInfo);
+        EventBus<DamageHitEvent>.Publish(hitEvent);
     }
 
     // 자폭 후 자신의 체력을 0으로 만들어 기존 사망 흐름을 사용합니다
     private void KillSelfByExplosion()
     {
-        if (SelfStatus == null || IsDead)
+        if (SelfHealth == null || IsDead)
         {
             Destroy(gameObject);
             return;
         }
 
-        DamageInfo selfDamageInfo = new DamageInfo(
-            gameObject,
-            null,
-            gameObject,
-            transform.position,
-            Vector3.zero,
-            Mathf.Max(SelfStatus.GetCurrentHP(), 999999f)
-        );
-
-        SelfStatus.TakeDamage(selfDamageInfo);
+        SelfHealth.Kill();
     }
 
     // 기본 Player 레이어 마스크를 설정합니다

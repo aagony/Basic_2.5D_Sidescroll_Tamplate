@@ -3,7 +3,8 @@ using UnityEngine;
 using UnityEngine.Pool;
 
 [RequireComponent(typeof(SphereCollider))]
-public class CommonProjectile : MonoBehaviour, IParryableProjectile
+[RequireComponent(typeof(Rigidbody))]
+public class CommonProjectile : MonoBehaviour
 {
     private const string DefaultPlayerLayerName = "Player";
 
@@ -16,11 +17,6 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
     [SerializeField] private LayerMask damageMask = ~0;
     [SerializeField] private LayerMask blockMask;
     [SerializeField] private bool ignoreOwner = true;
-    [SerializeField] private bool fallbackToPlayerStatus = true;
-
-    [Header("Parry")]
-    [SerializeField] private bool canBeParried = true;
-    [SerializeField] private Color parryReadyColor = Color.yellow;
 
     private IObjectPool<CommonProjectile> pool;
     private Vector3 moveDirection;
@@ -34,12 +30,8 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
     private bool isInPool = true;
     private GameObject owner;
     private Collider projectileCollider;
+    private Rigidbody projectileRigidbody;
     private float projectileRadius = 0.1f;
-    private Renderer[] targetRenderers;
-    private Material[][] targetMaterials;
-    private Color[][] originalColors;
-    private string[][] colorProperties;
-    private bool isParryReadyVisualActive;
     private readonly List<Object> damagedTargets = new List<Object>(8);
 
     public Vector3 Position
@@ -47,15 +39,19 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
         get { return transform.position; }
     }
 
-    // 투사체에 필요한 컴포넌트와 시각 정보를 준비합니다
+    // 투사체에 필요한 Collider와 Rigidbody를 준비합니다
     private void Awake()
     {
         projectileCollider = GetComponent<Collider>();
         projectileCollider.isTrigger = true;
+
+        projectileRigidbody = GetComponent<Rigidbody>();
+        projectileRigidbody.isKinematic = true;
+        projectileRigidbody.useGravity = false;
+
         projectileRadius = GetProjectileRadius(projectileCollider);
 
         EnsureDefaultDamageMask();
-        CacheVisualMaterials();
         FixDepthPosition();
     }
 
@@ -130,56 +126,6 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
         isActiveProjectile = true;
         isHit = false;
         damagedTargets.Clear();
-        RestoreOriginalColors();
-    }
-
-    // 플레이어 패링 입력이 성공했을 때 투사체를 반납합니다
-    public bool TryParry(GameObject parryOwner)
-    {
-        if (!canBeParried || isHit)
-        {
-            return false;
-        }
-
-        isHit = true;
-        owner = parryOwner;
-        ReturnToPoolOrDestroy();
-        return true;
-    }
-
-    // 전달된 오브젝트가 이 투사체의 발사자인지 확인합니다
-    public bool IsOwnedBy(GameObject candidate)
-    {
-        if (candidate == null || owner == null)
-        {
-            return false;
-        }
-
-        return owner == candidate || owner.transform.IsChildOf(candidate.transform);
-    }
-
-    // 패리 가능 범위 안에 있을 때 시각 표시를 켜거나 끕니다
-    public void SetParryReadyVisual(bool isReady)
-    {
-        if (!canBeParried)
-        {
-            return;
-        }
-
-        if (isParryReadyVisualActive == isReady)
-        {
-            return;
-        }
-
-        isParryReadyVisualActive = isReady;
-
-        if (isReady)
-        {
-            SetColor(parryReadyColor);
-            return;
-        }
-
-        RestoreOriginalColors();
     }
 
     // 풀에 반납되기 전에 내부 상태를 초기화합니다
@@ -187,12 +133,10 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
     {
         isActiveProjectile = false;
         isHit = false;
-        isParryReadyVisualActive = false;
         elapsedLifeTime = 0f;
         remainingPenetrationCount = 0;
         owner = null;
         damagedTargets.Clear();
-        RestoreOriginalColors();
         FixDepthPosition();
     }
 
@@ -243,7 +187,8 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
                 continue;
             }
 
-            Vector3 hitPoint = hitCollider.ClosestPoint(transform.position + moveDirection * hits[i].distance);
+            Vector3 castPoint = transform.position + moveDirection * hits[i].distance;
+            Vector3 hitPoint = hitCollider.ClosestPoint(castPoint);
             transform.position = FixDepthVector(hitPoint);
 
             bool consumed = HandleHit(hitCollider, hitPoint);
@@ -285,6 +230,7 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
         if (IsInLayerMask(other.gameObject, blockMask))
         {
             isHit = true;
+            PublishProjectileBlockedEvent(other, hitPoint);
             ReturnToPoolOrDestroy();
             return true;
         }
@@ -297,72 +243,97 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
         return false;
     }
 
-    // 데미지를 받을 수 있는 대상에게 DamageInfo를 전달합니다
+    // 데미지를 받을 수 있는 대상에게 데미지만 전달합니다
     private bool TryDamageTarget(Collider other, Vector3 hitPoint)
     {
-        Object damageTargetKey = null;
         IDamageable damageable = other.GetComponentInParent<IDamageable>();
 
-        if (damageable != null)
+        if (damageable == null)
         {
-            damageTargetKey = damageable as Object;
-
-            if (damageTargetKey != null && damagedTargets.Contains(damageTargetKey))
-            {
-                return false;
-            }
-
-            if (!damageable.CanTakeDamage)
-            {
-                return false;
-            }
-
-            DamageInfo damageInfo = CreateDamageInfo(other, hitPoint);
-            damageable.TakeDamage(damageInfo);
-
-            if (damageTargetKey != null)
-            {
-                damagedTargets.Add(damageTargetKey);
-            }
-
-            return ConsumePenetrationOrContinue();
+            return false;
         }
 
-        if (fallbackToPlayerStatus)
+        Object damageTargetKey = GetDamageTargetKey(other, damageable);
+
+        if (damageTargetKey != null && damagedTargets.Contains(damageTargetKey))
         {
-            PlayerStatus playerStatus = other.GetComponentInParent<PlayerStatus>();
-
-            if (playerStatus != null)
-            {
-                damageTargetKey = playerStatus;
-
-                if (damagedTargets.Contains(damageTargetKey))
-                {
-                    return false;
-                }
-
-                DamageInfo damageInfo = CreateDamageInfo(other, hitPoint);
-                playerStatus.TakeDamage(damageInfo);
-                damagedTargets.Add(damageTargetKey);
-
-                return ConsumePenetrationOrContinue();
-            }
+            return false;
         }
 
-        return false;
+        if (!damageable.CanTakeDamage)
+        {
+            return false;
+        }
+
+        if (damageTargetKey != null)
+        {
+            damagedTargets.Add(damageTargetKey);
+        }
+
+        damageable.TakeDamage(damage);
+        PublishDamageHitEvent(other, hitPoint, damageable);
+
+        return ConsumePenetrationOrContinue();
     }
 
-    // DamageInfo 객체를 생성합니다
-    private DamageInfo CreateDamageInfo(Collider hitCollider, Vector3 hitPoint)
+    // 중복 데미지 방지에 사용할 대상을 반환합니다
+    private Object GetDamageTargetKey(Collider hitCollider, IDamageable damageable)
     {
-        return new DamageInfo(
-            hitCollider.gameObject,
-            hitCollider,
+        Object damageableObject = damageable as Object;
+
+        if (damageableObject != null)
+        {
+            return damageableObject;
+        }
+
+        if (hitCollider.attachedRigidbody != null)
+        {
+            return hitCollider.attachedRigidbody;
+        }
+
+        return hitCollider.transform.root;
+    }
+
+    // 피격 이벤트에 사용할 대상 오브젝트를 반환합니다
+    private GameObject GetDamageableGameObject(Collider hitCollider, IDamageable damageable)
+    {
+        Component damageableComponent = damageable as Component;
+
+        if (damageableComponent != null)
+        {
+            return damageableComponent.gameObject;
+        }
+
+        return hitCollider.gameObject;
+    }
+
+    // 데미지 적용 사실을 이벤트 버스로 알립니다
+    private void PublishDamageHitEvent(Collider hitCollider, Vector3 hitPoint, IDamageable damageable)
+    {
+        DamageHitEvent hitEvent = new DamageHitEvent(
+            GetDamageableGameObject(hitCollider, damageable),
             owner,
+            hitCollider,
             hitPoint,
             moveDirection,
             damage
         );
+
+        EventBus<DamageHitEvent>.Publish(hitEvent);
+    }
+
+    // 투사체 차단 사실을 이벤트 버스로 알립니다
+    private void PublishProjectileBlockedEvent(Collider blockCollider, Vector3 hitPoint)
+    {
+        ProjectileBlockedEvent blockedEvent = new ProjectileBlockedEvent(
+            gameObject,
+            owner,
+            blockCollider,
+            hitPoint,
+            moveDirection
+        );
+
+        EventBus<ProjectileBlockedEvent>.Publish(blockedEvent);
     }
 
     // 관통 횟수를 처리하고 투사체 소비 여부를 반환합니다
@@ -474,128 +445,36 @@ public class CommonProjectile : MonoBehaviour, IParryableProjectile
         return Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
     }
 
-    // 패리 가능 표시를 위해 Renderer와 머티리얼 색상 정보를 저장합니다
-    private void CacheVisualMaterials()
-    {
-        targetRenderers = GetComponentsInChildren<Renderer>();
-        targetMaterials = new Material[targetRenderers.Length][];
-        originalColors = new Color[targetRenderers.Length][];
-        colorProperties = new string[targetRenderers.Length][];
-
-        for (int i = 0; i < targetRenderers.Length; i++)
-        {
-            targetMaterials[i] = targetRenderers[i].materials;
-            originalColors[i] = new Color[targetMaterials[i].Length];
-            colorProperties[i] = new string[targetMaterials[i].Length];
-
-            for (int j = 0; j < targetMaterials[i].Length; j++)
-            {
-                colorProperties[i][j] = GetColorProperty(targetMaterials[i][j]);
-
-                if (string.IsNullOrEmpty(colorProperties[i][j]))
-                {
-                    continue;
-                }
-
-                originalColors[i][j] = targetMaterials[i][j].GetColor(colorProperties[i][j]);
-            }
-        }
-    }
-
-    // 저장된 머티리얼 색상을 지정 색상으로 바꿉니다
-    private void SetColor(Color color)
-    {
-        if (targetMaterials == null)
-        {
-            return;
-        }
-
-        for (int i = 0; i < targetMaterials.Length; i++)
-        {
-            for (int j = 0; j < targetMaterials[i].Length; j++)
-            {
-                if (string.IsNullOrEmpty(colorProperties[i][j]))
-                {
-                    continue;
-                }
-
-                targetMaterials[i][j].SetColor(colorProperties[i][j], color);
-            }
-        }
-    }
-
-    // 투사체 머티리얼 색상을 원래 색상으로 되돌립니다
-    private void RestoreOriginalColors()
-    {
-        if (targetMaterials == null || originalColors == null || colorProperties == null)
-        {
-            return;
-        }
-
-        for (int i = 0; i < targetMaterials.Length; i++)
-        {
-            for (int j = 0; j < targetMaterials[i].Length; j++)
-            {
-                if (string.IsNullOrEmpty(colorProperties[i][j]))
-                {
-                    continue;
-                }
-
-                targetMaterials[i][j].SetColor(colorProperties[i][j], originalColors[i][j]);
-            }
-        }
-    }
-
-    // 머티리얼에서 색상 프로퍼티 이름을 찾습니다
-    private string GetColorProperty(Material material)
-    {
-        if (material == null)
-        {
-            return string.Empty;
-        }
-
-        if (material.HasProperty("_BaseColor"))
-        {
-            return "_BaseColor";
-        }
-
-        if (material.HasProperty("_Color"))
-        {
-            return "_Color";
-        }
-
-        return string.Empty;
-    }
-
-    // 2.5D 횡스크롤 이동을 위해 Z 위치를 고정합니다
-    private void FixDepthPosition()
-    {
-        transform.position = FixDepthVector(transform.position);
-    }
-
-    // Vector3의 Z 위치를 고정합니다
-    private Vector3 FixDepthVector(Vector3 position)
-    {
-        position.z = fixedZ;
-        return position;
-    }
-
-    // 풀로 반납하거나 풀 참조가 없으면 제거합니다
+    // 투사체를 풀로 반납하거나 풀 없이 생성된 경우 제거합니다
     private void ReturnToPoolOrDestroy()
     {
-        if (isInPool)
-        {
-            return;
-        }
+        isActiveProjectile = false;
 
         if (pool != null)
         {
+            if (isInPool)
+            {
+                return;
+            }
+
             isInPool = true;
             pool.Release(this);
             return;
         }
 
-        ResetForPool();
         Destroy(gameObject);
+    }
+
+    // 현재 위치의 Z값을 고정합니다
+    private void FixDepthPosition()
+    {
+        transform.position = FixDepthVector(transform.position);
+    }
+
+    // 2.5D 횡스크롤 투사체 이동을 위해 Z 위치를 고정합니다
+    private Vector3 FixDepthVector(Vector3 position)
+    {
+        position.z = fixedZ;
+        return position;
     }
 }

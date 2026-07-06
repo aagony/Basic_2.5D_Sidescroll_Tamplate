@@ -12,11 +12,9 @@ GameObject:
   - component: {fileID: 3094747010071456535}
   - component: {fileID: 8037317533666292644}
   - component: {fileID: 2412947332300312507}
-  - component: {fileID: 5045930008911125100}
   - component: {fileID: 796833027082730727}
-  - component: {fileID: 7462810416090037996}
-  - component: {fileID: 6415453096472653019}
-  - component: {fileID: 2793791033471370958}
+  - component: {fileID: 4567508217506912955}
+  - component: {fileID: 2894875104365389916}
   m_Layer: 0
   m_Name: FlyingSelfDestruct
   m_TagString: Untagged
@@ -117,24 +115,6 @@ SphereCollider:
   serializedVersion: 3
   m_Radius: 0.5
   m_Center: {x: 0, y: 0, z: 0}
---- !u!114 &5045930008911125100
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7472496473609349618}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4a9f2d3f240e3fa4d932d4610606d698, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::MonsterFlyingMotor
-  patrolDistance: 3
-  patrolPointTolerance: 0.15
-  hoverAmplitude: 0.18
-  hoverFrequency: 2
-  shakeAmplitude: 0.08
-  shakeFrequency: 35
 --- !u!143 &796833027082730727
 CharacterController:
   m_ObjectHideFlags: 0
@@ -160,7 +140,7 @@ CharacterController:
   m_SkinWidth: 0.08
   m_MinMoveDistance: 0.001
   m_Center: {x: 0, y: 0, z: 0}
---- !u!114 &7462810416090037996
+--- !u!114 &4567508217506912955
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -169,41 +149,16 @@ MonoBehaviour:
   m_GameObject: {fileID: 7472496473609349618}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 5e874a3cbb4d46b1b00d3f126301e91c, type: 3}
+  m_Script: {fileID: 11500000, guid: 4a9f2d3f240e3fa4d932d4610606d698, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::HitFlashFeedback
-  hitColor: {r: 1, g: 0.35, b: 0.35, a: 1}
-  flashDuration: 0.12
---- !u!114 &6415453096472653019
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7472496473609349618}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3fb0d01c2cc4496cbf57705eb382ed7d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::MonsterStatus
-  baseMaxHP: 30
-  baseAttackPower: 10
-  baseMoveSpeed: 3
-  baseAttackSpeed: 1
-  baseCooldown: 1
-  status:
-    MaxHP:
-      BaseValue: 0
-    AttackPower:
-      BaseValue: 0
-    MoveSpeed:
-      BaseValue: 0
-    AttackSpeed:
-      BaseValue: 0
-    Cooldown:
-      BaseValue: 0
-    CurrentHP: 0
---- !u!114 &2793791033471370958
+  m_EditorClassIdentifier: Assembly-CSharp::MonsterFlyingMotor
+  patrolDistance: 3
+  patrolPointTolerance: 0.15
+  hoverAmplitude: 0.18
+  hoverFrequency: 2
+  shakeAmplitude: 0.08
+  shakeFrequency: 35
+--- !u!114 &2894875104365389916
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -247,7 +202,7 @@ MonoBehaviour:
     m_Bits: 64
   explosionRadius: 2
   fallbackExplosionDamage: 25
-  explosionEffectPrefab: {fileID: 5094046088325549080, guid: 5193592141f1fad4eba8dbe541335509, type: 3}
+  explosionEffectPrefab: {fileID: 0}
   killSelfOnExplosion: 1
   animator: {fileID: 0}
   prepareTriggerName: Prepare
