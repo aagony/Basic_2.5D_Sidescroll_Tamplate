@@ -1,4 +1,7 @@
 ﻿<Solution>
   <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="MackySoft.SerializeReferenceExtensions.csproj" />
+  <Project Path="MackySoft.SerializeReferenceExtensions.Editor.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="MackySoft.SerializeReferenceExtensions.Tests.Editor.csproj" />
 </Solution>
